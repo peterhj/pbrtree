@@ -245,6 +245,30 @@ impl<Item, P> VertreapNode<Item, P> {
   }
 }
 
+impl<Item, P> VertreapNode<Item, P> {
+  fn _find<K>(&self, version: usize, key: &K) -> Option<Rc<Item>> where Item: PartialOrd<K> {
+    assert!(self.version <= version);
+    match self.item.partial_cmp(key) {
+      None => panic!(),
+      Some(Ordering::Equal) => {
+        Some(self.item.clone())
+      }
+      Some(Ordering::Greater) => {
+        match self.left {
+          None => None,
+          Some(ref l_node) => l_node._find(version, key),
+        }
+      }
+      Some(Ordering::Less) => {
+        match self.right {
+          None => None,
+          Some(ref r_node) => r_node._find(version, key),
+        }
+      }
+    }
+  }
+}
+
 impl<Item, P> VertreapNode<Item, P> where P: Copy {
   fn _rotate_left(&self, new_version: usize) -> VertreapNode<Item, P> {
     assert!(self.version <= new_version);
@@ -293,32 +317,9 @@ impl<Item, P> VertreapNode<Item, P> where P: Copy {
   }
 }
 
-impl<Item, P> VertreapNode<Item, P> {
-  fn _find<K>(&self, version: usize, key: &K) -> Option<Rc<Item>> where Item: PartialOrd<K> {
-    assert!(self.version <= version);
-    match self.item.partial_cmp(key) {
-      None => panic!(),
-      Some(Ordering::Equal) => {
-        Some(self.item.clone())
-      }
-      Some(Ordering::Less) => {
-        match self.left {
-          None => None,
-          Some(ref l_node) => l_node._find(version, key),
-        }
-      }
-      Some(Ordering::Greater) => {
-        match self.right {
-          None => None,
-          Some(ref r_node) => r_node._find(version, key),
-        }
-      }
-    }
-  }
-}
-
 impl<Item, P> VertreapNode<Item, P> where Item: Ord, P: Copy + Ord {
   fn _append(&self, new_version: usize, new_priority: P, new_item: Item) -> VertreapNode<Item, P> {
+    assert!(self.version < new_version);
     match new_item.cmp(&*self.item) {
       Ordering::Equal => {
         let new_node = VertreapNode::branch(new_version, self.priority, Rc::new(new_item), self.left.clone(), self.right.clone());
