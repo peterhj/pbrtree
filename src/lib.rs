@@ -12,36 +12,27 @@ pub struct KV<K, V> {
   pub v: V,
 }
 
-impl<K, V> PartialEq<K> for KV<K, V> where K: PartialEq {
+impl<K, V> PartialEq<K> for KV<K, V> where K: Eq {
   fn eq(&self, other_k: &K) -> bool {
     self.k.eq(&other_k)
   }
 }
 
-impl<K, V> PartialEq for KV<K, V> where K: PartialEq {
+impl<K, V> PartialEq for KV<K, V> where K: Eq {
   fn eq(&self, other: &KV<K, V>) -> bool {
     self.k.eq(&other.k)
   }
 }
 
-impl<K, V> Eq for KV<K, V> where K: Eq {
-}
-
-impl<K, V> PartialOrd<K> for KV<K, V> where K: PartialOrd {
+impl<K, V> PartialOrd<K> for KV<K, V> where K: Ord {
   fn partial_cmp(&self, other_k: &K) -> Option<Ordering> {
-    self.k.partial_cmp(&other_k)
+    Some(self.k.cmp(&other_k))
   }
 }
 
-impl<K, V> PartialOrd for KV<K, V> where K: PartialOrd {
+impl<K, V> PartialOrd for KV<K, V> where K: Ord {
   fn partial_cmp(&self, other: &KV<K, V>) -> Option<Ordering> {
-    self.k.partial_cmp(&other.k)
-  }
-}
-
-impl<K, V> Ord for KV<K, V> where K: Ord {
-  fn cmp(&self, other: &KV<K, V>) -> Ordering {
-    self.k.cmp(&other.k)
+    Some(self.k.cmp(&other.k))
   }
 }
 
@@ -317,15 +308,16 @@ impl<Item, P> VertreapNode<Item, P> where P: Copy {
   }
 }
 
-impl<Item, P> VertreapNode<Item, P> where Item: Ord, P: Copy + Ord {
+impl<Item, P> VertreapNode<Item, P> where Item: PartialOrd, P: Copy + Ord {
   fn _append(&self, new_version: usize, new_priority: P, new_item: Item) -> VertreapNode<Item, P> {
     assert!(self.version < new_version);
-    match new_item.cmp(&*self.item) {
-      Ordering::Equal => {
+    match new_item.partial_cmp(&*self.item) {
+      None => panic!(),
+      Some(Ordering::Equal) => {
         let new_node = VertreapNode::branch(new_version, self.priority, Rc::new(new_item), self.left.clone(), self.right.clone());
         new_node
       }
-      Ordering::Less => {
+      Some(Ordering::Less) => {
         let new_left = match self.left {
           None => VertreapNode::leaf(new_version, new_priority, new_item),
           Some(ref l_node) => l_node._append(new_version, new_priority, new_item),
@@ -338,7 +330,7 @@ impl<Item, P> VertreapNode<Item, P> where Item: Ord, P: Copy + Ord {
           tmp_node._rotate_right(new_version)
         }
       }
-      Ordering::Greater => {
+      Some(Ordering::Greater) => {
         let new_right = match self.right {
           None => VertreapNode::leaf(new_version, new_priority, new_item),
           Some(ref r_node) => r_node._append(new_version, new_priority, new_item),
