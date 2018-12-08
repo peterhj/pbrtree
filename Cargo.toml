@@ -1,0 +1,11 @@
+[package]
+name = "vertreap"
+version = "0.0.0"
+authors = ["Peter Jin <peterhaijin@gmail.com>"]
+
+[lib]
+name = "vertreap"
+path = "src/lib.rs"
+
+[dependencies]
+rand = "^0.6"
