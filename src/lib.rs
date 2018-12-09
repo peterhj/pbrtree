@@ -37,23 +37,21 @@ impl<K, V> PartialOrd for KV<K, V> where K: Ord {
 }
 
 pub struct VertreapMap<K, V, P=usize> {
-  version:  usize,
-  state:    Rc<VertreapState>,
-  root:     Option<Rc<VertreapNode<KV<K, V>, P>>>,
+  vtreap:   Vertreap<KV<K, V>, P>,
 }
 
 impl<K, V, P> Default for VertreapMap<K, V, P> {
   fn default() -> VertreapMap<K, V, P> {
-    VertreapMap::new()
+    VertreapMap{
+      vtreap:   Vertreap::default(),
+    }
   }
 }
 
 impl<K, V, P> Clone for VertreapMap<K, V, P> {
   fn clone(&self) -> VertreapMap<K, V, P> {
     VertreapMap{
-      version:  self.version,
-      state:    self.state.clone(),
-      root:     self.root.clone(),
+      vtreap:   self.vtreap.clone(),
     }
   }
 }
@@ -61,9 +59,7 @@ impl<K, V, P> Clone for VertreapMap<K, V, P> {
 impl<K, V, P> VertreapMap<K, V, P> {
   pub fn new() -> VertreapMap<K, V, P> {
     VertreapMap{
-      version:  0,
-      state:    Rc::new(VertreapState{version: Cell::new(0)}),
-      root:     None,
+      vtreap:   Vertreap::new(),
     }
   }
 }
@@ -72,10 +68,7 @@ impl<K, V, P> VertreapMap<K, V, P>
 where K: Ord,
 {
   pub fn find(&self, key: &K) -> Option<Rc<KV<K, V>>> {
-    match self.root {
-      None => None,
-      Some(ref root_node) => root_node._find(self.version, key),
-    }
+    self.vtreap.find(key)
   }
 }
 
@@ -90,50 +83,29 @@ where K: Ord,
 
   pub fn append_with_rng<R: Rng>(&self, key: K, val: V, rng: &mut R) -> VertreapMap<K, V, P> {
     let priority: P = rng.sample(&Standard);
-    self.append_with_priority(priority, key, val)
-  }
-
-  fn append_with_priority(&self, priority: P, key: K, val: V) -> VertreapMap<K, V, P> {
-    let old_version = self.state.version.get();
-    let new_version = old_version + 1;
-    assert!(new_version != 0);
-    self.state.version.set(new_version);
-    assert!(self.version < new_version);
-    let new_root = match self.root {
-      None => {
-        VertreapNode::leaf(new_version, priority, KV{k: key, v: val})
-      }
-      Some(ref root_node) => {
-        root_node._append(new_version, priority, KV{k: key, v: val})
-      }
-    };
-    let new_map = VertreapMap{
-      version:    new_version,
-      state:      self.state.clone(),
-      root:       Some(Rc::new(new_root)),
-    };
-    new_map
+    let new_vtreap = self.vtreap.append_with_priority(priority, KV{k: key, v: val});
+    VertreapMap{
+      vtreap:   new_vtreap,
+    }
   }
 }
 
 pub struct VertreapSet<K, P=usize> {
-  version:  usize,
-  state:    Rc<VertreapState>,
-  root:     Option<Rc<VertreapNode<K, P>>>,
+  vtreap:   Vertreap<K, P>,
 }
 
 impl<K, P> Default for VertreapSet<K, P> {
   fn default() -> VertreapSet<K, P> {
-    VertreapSet::new()
+    VertreapSet{
+      vtreap:   Vertreap::default(),
+    }
   }
 }
 
 impl<K, P> Clone for VertreapSet<K, P> {
   fn clone(&self) -> VertreapSet<K, P> {
     VertreapSet{
-      version:  self.version,
-      state:    self.state.clone(),
-      root:     self.root.clone(),
+      vtreap:   self.vtreap.clone(),
     }
   }
 }
@@ -141,9 +113,7 @@ impl<K, P> Clone for VertreapSet<K, P> {
 impl<K, P> VertreapSet<K, P> {
   pub fn new() -> VertreapSet<K, P> {
     VertreapSet{
-      version:  0,
-      state:    Rc::new(VertreapState{version: Cell::new(0)}),
-      root:     None,
+      vtreap:   Vertreap::new(),
     }
   }
 }
@@ -152,10 +122,7 @@ impl<K, P> VertreapSet<K, P>
 where K: Ord,
 {
   pub fn contains(&self, key: &K) -> bool {
-    match self.root {
-      None => false,
-      Some(ref root_node) => root_node._find(self.version, key).is_some(),
-    }
+    self.vtreap.find(key).is_some()
   }
 }
 
@@ -170,10 +137,63 @@ where K: Ord,
 
   pub fn append_with_rng<R: Rng>(&self, key: K, rng: &mut R) -> VertreapSet<K, P> {
     let priority: P = rng.sample(&Standard);
-    self.append_with_priority(priority, key)
+    let new_vtreap = self.vtreap.append_with_priority(priority, key);
+    VertreapSet{
+      vtreap:   new_vtreap,
+    }
   }
+}
 
-  fn append_with_priority(&self, priority: P, key: K) -> VertreapSet<K, P> {
+struct VertreapState {
+  version:  Cell<usize>,
+}
+
+pub struct Vertreap<Item, P=usize> {
+  version:  usize,
+  state:    Rc<VertreapState>,
+  root:     Option<Rc<VertreapNode<Item, P>>>,
+}
+
+impl<Item, P> Default for Vertreap<Item, P> {
+  fn default() -> Vertreap<Item, P> {
+    Vertreap::new()
+  }
+}
+
+impl<Item, P> Clone for Vertreap<Item, P> {
+  fn clone(&self) -> Vertreap<Item, P> {
+    Vertreap{
+      version:  self.version,
+      state:    self.state.clone(),
+      root:     self.root.clone(),
+    }
+  }
+}
+
+impl<Item, P> Vertreap<Item, P> {
+  pub fn new() -> Vertreap<Item, P> {
+    Vertreap{
+      version:  0,
+      state:    Rc::new(VertreapState{version: Cell::new(0)}),
+      root:     None,
+    }
+  }
+}
+
+impl<Item, P> Vertreap<Item, P> {
+  pub fn find<K>(&self, key: &K) -> Option<Rc<Item>> where Item: PartialOrd<K> {
+    match self.root {
+      None => None,
+      Some(ref root_node) => root_node._find(self.version, key),
+    }
+  }
+}
+
+impl<Item, P> Vertreap<Item, P>
+where Item: PartialOrd,
+      P: Copy + Ord,
+{
+  pub fn append_with_priority(&self, priority: P, item: Item) -> Vertreap<Item, P> {
     let old_version = self.state.version.get();
     let new_version = old_version + 1;
     assert!(new_version != 0);
@@ -181,23 +201,19 @@ where K: Ord,
     assert!(self.version < new_version);
     let new_root = match self.root {
       None => {
-        VertreapNode::leaf(new_version, priority, key)
+        VertreapNode::leaf(new_version, priority, item)
       }
       Some(ref root_node) => {
-        root_node._append(new_version, priority, key)
+        root_node._append(new_version, priority, item)
       }
     };
-    let new_set = VertreapSet{
+    let new_vtreap = Vertreap{
       version:    new_version,
       state:      self.state.clone(),
       root:       Some(Rc::new(new_root)),
     };
-    new_set
+    new_vtreap
   }
-}
-
-struct VertreapState {
-  version:  Cell<usize>,
 }
 
 struct VertreapNode<Item, P> {
