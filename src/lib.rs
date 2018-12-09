@@ -64,6 +64,12 @@ impl<K, V, P> VertreapMap<K, V, P> {
   }
 }
 
+impl<K, P> VertreapMap<K, P> {
+  pub fn len(&self) -> usize {
+    self.vtreap.len()
+  }
+}
+
 impl<K, V, P> VertreapMap<K, V, P>
 where K: Ord,
 {
@@ -118,6 +124,12 @@ impl<K, P> VertreapSet<K, P> {
   }
 }
 
+impl<K, P> VertreapSet<K, P> {
+  pub fn len(&self) -> usize {
+    self.vtreap.len()
+  }
+}
+
 impl<K, P> VertreapSet<K, P>
 where K: Ord,
 {
@@ -150,6 +162,7 @@ struct VertreapState {
 
 pub struct Vertreap<Item, P=usize> {
   version:  usize,
+  count:    usize,
   state:    Rc<VertreapState>,
   root:     Option<Rc<VertreapNode<Item, P>>>,
 }
@@ -164,6 +177,7 @@ impl<Item, P> Clone for Vertreap<Item, P> {
   fn clone(&self) -> Vertreap<Item, P> {
     Vertreap{
       version:  self.version,
+      count:    self.count,
       state:    self.state.clone(),
       root:     self.root.clone(),
     }
@@ -174,6 +188,7 @@ impl<Item, P> Vertreap<Item, P> {
   pub fn new() -> Vertreap<Item, P> {
     Vertreap{
       version:  0,
+      count:    0,
       state:    Rc::new(VertreapState{version: Cell::new(0)}),
       root:     None,
     }
@@ -181,6 +196,10 @@ impl<Item, P> Vertreap<Item, P> {
 }
 
 impl<Item, P> Vertreap<Item, P> {
+  pub fn len(&self) -> usize {
+    self.count
+  }
+
   pub fn find<K>(&self, key: &K) -> Option<Rc<Item>> where Item: PartialOrd<K> {
     match self.root {
       None => None,
@@ -199,9 +218,9 @@ where Item: PartialOrd,
     assert!(new_version != 0);
     self.state.version.set(new_version);
     assert!(self.version < new_version);
-    let new_root = match self.root {
+    let (new_root, new_ct) = match self.root {
       None => {
-        VertreapNode::leaf(new_version, priority, item)
+        (VertreapNode::leaf(new_version, priority, item), 1)
       }
       Some(ref root_node) => {
         root_node._append(new_version, priority, item)
@@ -209,6 +228,7 @@ where Item: PartialOrd,
     };
     let new_vtreap = Vertreap{
       version:    new_version,
+      count:      self.count + new_ct,
       state:      self.state.clone(),
       root:       Some(Rc::new(new_root)),
     };
@@ -325,38 +345,37 @@ impl<Item, P> VertreapNode<Item, P> where P: Copy {
 }
 
 impl<Item, P> VertreapNode<Item, P> where Item: PartialOrd, P: Copy + Ord {
-  fn _append(&self, new_version: usize, new_priority: P, new_item: Item) -> VertreapNode<Item, P> {
+  fn _append(&self, new_version: usize, new_priority: P, new_item: Item) -> (VertreapNode<Item, P>, usize) {
     assert!(self.version < new_version);
     match new_item.partial_cmp(&*self.item) {
       None => panic!(),
       Some(Ordering::Equal) => {
-        let new_node = VertreapNode::branch(new_version, self.priority, Rc::new(new_item), self.left.clone(), self.right.clone());
-        new_node
+        (VertreapNode::branch(new_version, self.priority, Rc::new(new_item), self.left.clone(), self.right.clone()), 0)
       }
       Some(Ordering::Less) => {
-        let new_left = match self.left {
-          None => VertreapNode::leaf(new_version, new_priority, new_item),
+        let (new_left, new_ct) = match self.left {
+          None => (VertreapNode::leaf(new_version, new_priority, new_item), 1),
           Some(ref l_node) => l_node._append(new_version, new_priority, new_item),
         };
         let heap_ordered = new_left.priority <= self.priority;
         let tmp_node = VertreapNode::branch(new_version, self.priority, self.item.clone(), Some(Rc::new(new_left)), self.right.clone());
         if heap_ordered {
-          tmp_node
+          (tmp_node, new_ct)
         } else {
-          tmp_node._rotate_right(new_version)
+          (tmp_node._rotate_right(new_version), new_ct)
         }
       }
       Some(Ordering::Greater) => {
-        let new_right = match self.right {
-          None => VertreapNode::leaf(new_version, new_priority, new_item),
+        let (new_right, new_ct) = match self.right {
+          None => (VertreapNode::leaf(new_version, new_priority, new_item), 1),
           Some(ref r_node) => r_node._append(new_version, new_priority, new_item),
         };
         let heap_ordered = new_right.priority <= self.priority;
         let tmp_node = VertreapNode::branch(new_version, self.priority, self.item.clone(), self.left.clone(), Some(Rc::new(new_right)));
         if heap_ordered {
-          tmp_node
+          (tmp_node, new_ct)
         } else {
-          tmp_node._rotate_left(new_version)
+          (tmp_node._rotate_left(new_version), new_ct)
         }
       }
     }
