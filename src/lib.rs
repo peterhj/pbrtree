@@ -156,6 +156,59 @@ where K: Ord,
   }
 }
 
+pub struct VertreapIter<Item, P> {
+  done:     bool,
+  next:     Option<Rc<VertreapNode<Item, P>>>,
+  stack:    Vec<Rc<VertreapNode<Item, P>>>,
+}
+
+impl<Item, P> VertreapIter<Item, P> {
+  pub fn new(root: Option<Rc<VertreapNode<Item, P>>>) -> VertreapIter<Item, P> {
+    VertreapIter{
+      done:     false,
+      next:     root,
+      stack:    Vec::new(),
+    }
+  }
+}
+
+impl<Item, P> Iterator for VertreapIter<Item, P> {
+  type Item = Rc<VertreapNode<Item, P>>;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    if self.done {
+      return None;
+    }
+    let mut retval = None;
+    let mut do_break = false;
+    while !do_break {
+      self.next = match self.next.take() {
+        Some(next_node) => {
+          let left = next_node.left.clone();
+          self.stack.push(next_node);
+          left
+        }
+        None => {
+          match self.stack.pop() {
+            Some(top_node) => {
+              let right = top_node.right.clone();
+              retval = Some(top_node);
+              do_break = true;
+              right
+            }
+            None => {
+              self.done = true;
+              do_break = true;
+              None
+            }
+          }
+        }
+      };
+    }
+    retval
+  }
+}
+
 struct VertreapState {
   version:  Cell<usize>,
 }
@@ -193,9 +246,7 @@ impl<Item, P> Vertreap<Item, P> {
       root:     None,
     }
   }
-}
 
-impl<Item, P> Vertreap<Item, P> {
   pub fn len(&self) -> usize {
     self.count
   }
@@ -236,7 +287,7 @@ where Item: PartialOrd,
   }
 }
 
-struct VertreapNode<Item, P> {
+pub struct VertreapNode<Item, P> {
   version:  usize,
   priority: P,
   item:     Rc<Item>,
