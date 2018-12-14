@@ -105,6 +105,10 @@ where K: Ord,
 
   pub fn append_with_rng<R: Rng>(&self, key: K, val: V, rng: &mut R) -> VertreapMap<K, V, P> {
     let priority: P = rng.sample(&Standard);
+    self.append_with_priority(priority, key, val)
+  }
+
+  pub fn append_with_priority(&self, priority: P, key: K, val: V) -> VertreapMap<K, V, P> {
     let new_vtreap = self.vtreap.append_with_priority(priority, KV{k: key, v: val});
     VertreapMap{
       vtreap:   new_vtreap,
@@ -181,6 +185,10 @@ where K: Ord,
 
   pub fn append_with_rng<R: Rng>(&self, key: K, rng: &mut R) -> VertreapSet<K, P> {
     let priority: P = rng.sample(&Standard);
+    self.append_with_priority(priority, key)
+  }
+
+  pub fn append_with_priority(&self, priority: P, key: K) -> VertreapSet<K, P> {
     let new_vtreap = self.vtreap.append_with_priority(priority, key);
     VertreapSet{
       vtreap:   new_vtreap,
