@@ -36,6 +36,18 @@ impl<K, V> PartialOrd for KV<K, V> where K: Ord {
   }
 }
 
+pub struct VertreapMapIter<K, V, P> {
+  inner:    VertreapIter<KV<K, V>, P>,
+}
+
+impl<K, V, P> Iterator for VertreapMapIter<K, V, P> {
+  type Item = Rc<KV<K, V>>;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    self.inner.next().map(|node| node.item.clone())
+  }
+}
+
 pub struct VertreapMap<K, V, P=usize> {
   vtreap:   Vertreap<KV<K, V>, P>,
 }
@@ -64,9 +76,13 @@ impl<K, V, P> VertreapMap<K, V, P> {
   }
 }
 
-impl<K, P> VertreapMap<K, P> {
+impl<K, V, P> VertreapMap<K, V, P> {
   pub fn len(&self) -> usize {
     self.vtreap.len()
+  }
+
+  pub fn iter(&self) -> VertreapMapIter<K, V, P> {
+    VertreapMapIter{inner: self.vtreap.iter()}
   }
 }
 
@@ -93,6 +109,18 @@ where K: Ord,
     VertreapMap{
       vtreap:   new_vtreap,
     }
+  }
+}
+
+pub struct VertreapSetIter<K, P> {
+  inner:    VertreapIter<K, P>,
+}
+
+impl<K, P> Iterator for VertreapSetIter<K, P> {
+  type Item = Rc<K>;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    self.inner.next().map(|node| node.item.clone())
   }
 }
 
@@ -127,6 +155,10 @@ impl<K, P> VertreapSet<K, P> {
 impl<K, P> VertreapSet<K, P> {
   pub fn len(&self) -> usize {
     self.vtreap.len()
+  }
+
+  pub fn iter(&self) -> VertreapSetIter<K, P> {
+    VertreapSetIter{inner: self.vtreap.iter()}
   }
 }
 
@@ -249,6 +281,10 @@ impl<Item, P> Vertreap<Item, P> {
 
   pub fn len(&self) -> usize {
     self.count
+  }
+
+  pub fn iter(&self) -> VertreapIter<Item, P> {
+    VertreapIter::new(self.root.clone())
   }
 
   pub fn find<K>(&self, key: &K) -> Option<Rc<Item>> where Item: PartialOrd<K> {
