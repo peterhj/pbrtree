@@ -7,7 +7,6 @@ use std::cell::{Cell, RefCell};
 use std::cmp::{Ordering};
 use std::collections::hash_map::{RandomState};
 use std::hash::{BuildHasher, Hash, Hasher};
-use std::marker::{PhantomData};
 use std::rc::{Rc};
 
 /// A key-value pair partially ordered only by the key.
@@ -44,57 +43,52 @@ pub trait KeyedGenerator<K, P> {
   fn make_priority(&self, key: &K) -> P;
 }
 
-pub struct ThreadRngGenerator<K, P> {
-  _mrk:     PhantomData<fn (&K) -> P>,
+pub struct ThreadRngGenerator {
 }
 
-impl<K, P> Default for ThreadRngGenerator<K, P> {
-  fn default() -> ThreadRngGenerator<K, P> {
-    ThreadRngGenerator{_mrk: PhantomData}
+impl Default for ThreadRngGenerator {
+  fn default() -> ThreadRngGenerator {
+    ThreadRngGenerator{}
   }
 }
 
-impl<K, P> KeyedGenerator<K, P> for ThreadRngGenerator<K, P> where Standard: Distribution<P> {
+impl<K, P> KeyedGenerator<K, P> for ThreadRngGenerator where Standard: Distribution<P> {
   fn make_priority(&self, _key: &K) -> P {
     thread_rng().sample(&Standard)
   }
 }
 
-pub struct RngGenerator<K, P, R> {
+pub struct RngGenerator<R> {
   inner:    RefCell<R>,
-  _mrk:     PhantomData<fn (&K) -> P>,
 }
 
-impl<K, P, R> RngGenerator<K, P, R> {
-  pub fn new(rng: R) -> RngGenerator<K, P, R> {
+impl<R> RngGenerator<R> {
+  pub fn new(rng: R) -> RngGenerator<R> {
     RngGenerator{
       inner:    RefCell::new(rng),
-      _mrk:     PhantomData,
     }
   }
 }
 
-impl<K, P, R: Rng> KeyedGenerator<K, P> for RngGenerator<K, P, R> where Standard: Distribution<P> {
+impl<K, P, R: Rng> KeyedGenerator<K, P> for RngGenerator<R> where Standard: Distribution<P> {
   fn make_priority(&self, _key: &K) -> P {
     self.inner.borrow_mut().sample(&Standard)
   }
 }
 
-pub struct RandomHasherGenerator<K> {
+pub struct RandomHasherGenerator {
   inner:    RandomState,
-  _mrk:     PhantomData<fn (&K) -> u64>,
 }
 
-impl<K> Default for RandomHasherGenerator<K> {
-  fn default() -> RandomHasherGenerator<K> {
+impl Default for RandomHasherGenerator {
+  fn default() -> RandomHasherGenerator {
     RandomHasherGenerator{
       inner:    RandomState::new(),
-      _mrk:     PhantomData,
     }
   }
 }
 
-impl<K: Hash> KeyedGenerator<K, u64> for RandomHasherGenerator<K> {
+impl<K: Hash> KeyedGenerator<K, u64> for RandomHasherGenerator {
   fn make_priority(&self, key: &K) -> u64 {
     let mut state = self.inner.build_hasher();
     key.hash(&mut state);
@@ -120,8 +114,7 @@ pub struct VertreapMap<K, V, P=u64> {
   vtreap:   Vertreap<KV<K, V>, P>,
 }
 
-impl<K, V, P> Default for VertreapMap<K, V, P>
-where K: 'static, P: 'static, Standard: Distribution<P> {
+impl<K, V, P> Default for VertreapMap<K, V, P> where Standard: Distribution<P> {
   fn default() -> VertreapMap<K, V, P> {
     VertreapMap::new_with_thread_rng()
   }
@@ -136,8 +129,7 @@ impl<K, V, P> Clone for VertreapMap<K, V, P> {
   }
 }
 
-impl<K, V, P> VertreapMap<K, V, P>
-where K: 'static, P: 'static, Standard: Distribution<P> {
+impl<K, V, P> VertreapMap<K, V, P> where Standard: Distribution<P> {
   /// Create a new persistent treap-backed map, where priorities are generated
   /// by `ThreadRng`.
   pub fn new_with_thread_rng() -> VertreapMap<K, V, P> {
@@ -157,8 +149,7 @@ where K: 'static, P: 'static, Standard: Distribution<P> {
   }
 }
 
-impl<K, V> VertreapMap<K, V, u64>
-where K: Hash + 'static {
+impl<K, V> VertreapMap<K, V, u64> where K: Hash {
   /// Create a new persistent treap-backed map, where priorities are generated
   /// by a randomly seeded hasher (the same as used for `HashMap`).
   pub fn new_with_random_hasher() -> VertreapMap<K, V, u64> {
