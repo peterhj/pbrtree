@@ -3,10 +3,14 @@ extern crate rand;
 use rand::prelude::{Rng, thread_rng};
 use rand::distributions::{Distribution, Standard};
 
-use std::cell::{Cell};
+use std::cell::{Cell, RefCell};
 use std::cmp::{Ordering};
+use std::collections::hash_map::{RandomState};
+use std::hash::{BuildHasher, Hash, Hasher};
+use std::marker::{PhantomData};
 use std::rc::{Rc};
 
+/// A key-value pair partially ordered only by the key.
 pub struct KV<K, V> {
   pub k: K,
   pub v: V,
@@ -36,6 +40,68 @@ impl<K, V> PartialOrd for KV<K, V> where K: Ord {
   }
 }
 
+pub trait KeyedGenerator<K, P> {
+  fn make_priority(&self, key: &K) -> P;
+}
+
+pub struct ThreadRngGenerator<K, P> {
+  _mrk:     PhantomData<fn (&K) -> P>,
+}
+
+impl<K, P> Default for ThreadRngGenerator<K, P> {
+  fn default() -> ThreadRngGenerator<K, P> {
+    ThreadRngGenerator{_mrk: PhantomData}
+  }
+}
+
+impl<K, P> KeyedGenerator<K, P> for ThreadRngGenerator<K, P> where Standard: Distribution<P> {
+  fn make_priority(&self, _key: &K) -> P {
+    thread_rng().sample(&Standard)
+  }
+}
+
+pub struct RngGenerator<K, P, R> {
+  inner:    RefCell<R>,
+  _mrk:     PhantomData<fn (&K) -> P>,
+}
+
+impl<K, P, R> RngGenerator<K, P, R> {
+  pub fn new(rng: R) -> RngGenerator<K, P, R> {
+    RngGenerator{
+      inner:    RefCell::new(rng),
+      _mrk:     PhantomData,
+    }
+  }
+}
+
+impl<K, P, R: Rng> KeyedGenerator<K, P> for RngGenerator<K, P, R> where Standard: Distribution<P> {
+  fn make_priority(&self, _key: &K) -> P {
+    self.inner.borrow_mut().sample(&Standard)
+  }
+}
+
+pub struct RandomHasherGenerator<K> {
+  inner:    RandomState,
+  _mrk:     PhantomData<fn (&K) -> u64>,
+}
+
+impl<K> Default for RandomHasherGenerator<K> {
+  fn default() -> RandomHasherGenerator<K> {
+    RandomHasherGenerator{
+      inner:    RandomState::new(),
+      _mrk:     PhantomData,
+    }
+  }
+}
+
+impl<K: Hash> KeyedGenerator<K, u64> for RandomHasherGenerator<K> {
+  fn make_priority(&self, key: &K) -> u64 {
+    let mut state = self.inner.build_hasher();
+    key.hash(&mut state);
+    state.finish()
+  }
+}
+
 pub struct VertreapMapIter<K, V, P> {
   inner:    VertreapIter<KV<K, V>, P>,
 }
@@ -48,39 +114,71 @@ impl<K, V, P> Iterator for VertreapMapIter<K, V, P> {
   }
 }
 
-pub struct VertreapMap<K, V, P=usize> {
+/// An ordered associative map backed by a persistent treap.
+pub struct VertreapMap<K, V, P=u64> {
+  state:    Rc<dyn KeyedGenerator<K, P>>,
   vtreap:   Vertreap<KV<K, V>, P>,
 }
 
-impl<K, V, P> Default for VertreapMap<K, V, P> {
+impl<K, V, P> Default for VertreapMap<K, V, P>
+where K: 'static, P: 'static, Standard: Distribution<P> {
   fn default() -> VertreapMap<K, V, P> {
-    VertreapMap{
-      vtreap:   Vertreap::default(),
-    }
+    VertreapMap::new_with_thread_rng()
   }
 }
 
 impl<K, V, P> Clone for VertreapMap<K, V, P> {
   fn clone(&self) -> VertreapMap<K, V, P> {
     VertreapMap{
+      state:    self.state.clone(),
       vtreap:   self.vtreap.clone(),
     }
   }
 }
 
-impl<K, V, P> VertreapMap<K, V, P> {
-  pub fn new() -> VertreapMap<K, V, P> {
+impl<K, V, P> VertreapMap<K, V, P>
+where K: 'static, P: 'static, Standard: Distribution<P> {
+  /// Create a new persistent treap-backed map, where priorities are generated
+  /// by `ThreadRng`.
+  pub fn new_with_thread_rng() -> VertreapMap<K, V, P> {
     VertreapMap{
-      vtreap:   Vertreap::new(),
+      state:    Rc::new(ThreadRngGenerator::default()),
+      vtreap:   Vertreap::default(),
+    }
+  }
+
+  /// Create a new persistent treap-backed map, where priorities are generated
+  /// by a provided `Rng`.
+  pub fn new_with_rng<R: Rng + 'static>(rng: R) -> VertreapMap<K, V, P> {
+    VertreapMap{
+      state:    Rc::new(RngGenerator::new(rng)),
+      vtreap:   Vertreap::default(),
+    }
+  }
+}
+
+impl<K, V> VertreapMap<K, V, u64>
+where K: Hash + 'static {
+  /// Create a new persistent treap-backed map, where priorities are generated
+  /// by a randomly seeded hasher (the same as used for `HashMap`).
+  pub fn new_with_random_hasher() -> VertreapMap<K, V, u64> {
+    VertreapMap{
+      state:    Rc::new(RandomHasherGenerator::default()),
+      vtreap:   Vertreap::default(),
     }
   }
 }
 
 impl<K, V, P> VertreapMap<K, V, P> {
+  /// Count the number of key-value pairs in the map.
   pub fn len(&self) -> usize {
     self.vtreap.len()
   }
 
+  /// Create an ordered iterator over the key-value pairs in the map.
+  ///
+  /// The iterator performs an in-order depth-first traversal of the backing
+  /// treap using a stack.
   pub fn iter(&self) -> VertreapMapIter<K, V, P> {
     VertreapMapIter{inner: self.vtreap.iter()}
   }
@@ -97,20 +195,16 @@ where K: Ord,
 impl<K, V, P> VertreapMap<K, V, P>
 where K: Ord,
       P: Copy + Ord,
-      Standard: Distribution<P>,
 {
   pub fn append(&self, key: K, val: V) -> VertreapMap<K, V, P> {
-    self.append_with_rng(key, val, &mut thread_rng())
-  }
-
-  pub fn append_with_rng<R: Rng>(&self, key: K, val: V, rng: &mut R) -> VertreapMap<K, V, P> {
-    let priority: P = rng.sample(&Standard);
+    let priority = self.state.make_priority(&key);
     self.append_with_priority(priority, key, val)
   }
 
   pub fn append_with_priority(&self, priority: P, key: K, val: V) -> VertreapMap<K, V, P> {
     let new_vtreap = self.vtreap.append_with_priority(priority, KV{k: key, v: val});
     VertreapMap{
+      state:    self.state.clone(),
       vtreap:   new_vtreap,
     }
   }
@@ -128,7 +222,8 @@ impl<K, P> Iterator for VertreapSetIter<K, P> {
   }
 }
 
-pub struct VertreapSet<K, P=usize> {
+/// An ordered set backed by a persistent treap.
+pub struct VertreapSet<K, P=u64> {
   vtreap:   Vertreap<K, P>,
 }
 
@@ -149,18 +244,22 @@ impl<K, P> Clone for VertreapSet<K, P> {
 }
 
 impl<K, P> VertreapSet<K, P> {
+  /// Create a new persistent treap-backed set.
   pub fn new() -> VertreapSet<K, P> {
-    VertreapSet{
-      vtreap:   Vertreap::new(),
-    }
+    VertreapSet::default()
   }
 }
 
 impl<K, P> VertreapSet<K, P> {
+  /// Count the number of keys in the set.
   pub fn len(&self) -> usize {
     self.vtreap.len()
   }
 
+  /// Create an ordered iterator over the keys in the set.
+  ///
+  /// The iterator performs an in-order depth-first traversal of the backing
+  /// treap using a stack.
   pub fn iter(&self) -> VertreapSetIter<K, P> {
     VertreapSetIter{inner: self.vtreap.iter()}
   }
@@ -187,7 +286,12 @@ where K: Ord,
     let priority: P = rng.sample(&Standard);
     self.append_with_priority(priority, key)
   }
+}
 
+impl<K, P> VertreapSet<K, P>
+where K: Ord,
+      P: Copy + Ord,
+{
   pub fn append_with_priority(&self, priority: P, key: K) -> VertreapSet<K, P> {
     let new_vtreap = self.vtreap.append_with_priority(priority, key);
     VertreapSet{
@@ -250,11 +354,11 @@ impl<Item, P> Iterator for VertreapIter<Item, P> {
 }
 
 struct VertreapState {
-  version:  Cell<usize>,
+  version:  Cell<u64>,
 }
 
-pub struct Vertreap<Item, P=usize> {
-  version:  usize,
+pub struct Vertreap<Item, P=u64> {
+  version:  u64,
   count:    usize,
   state:    Rc<VertreapState>,
   root:     Option<Rc<VertreapNode<Item, P>>>,
@@ -262,7 +366,12 @@ pub struct Vertreap<Item, P=usize> {
 
 impl<Item, P> Default for Vertreap<Item, P> {
   fn default() -> Vertreap<Item, P> {
-    Vertreap::new()
+    Vertreap{
+      version:  0,
+      count:    0,
+      state:    Rc::new(VertreapState{version: Cell::new(0)}),
+      root:     None,
+    }
   }
 }
 
@@ -278,15 +387,6 @@ impl<Item, P> Clone for Vertreap<Item, P> {
 }
 
 impl<Item, P> Vertreap<Item, P> {
-  pub fn new() -> Vertreap<Item, P> {
-    Vertreap{
-      version:  0,
-      count:    0,
-      state:    Rc::new(VertreapState{version: Cell::new(0)}),
-      root:     None,
-    }
-  }
-
   pub fn len(&self) -> usize {
     self.count
   }
@@ -332,7 +432,7 @@ where Item: PartialOrd,
 }
 
 pub struct VertreapNode<Item, P> {
-  version:  usize,
+  version:  u64,
   priority: P,
   item:     Rc<Item>,
   left:     Option<Rc<VertreapNode<Item, P>>>,
@@ -340,7 +440,7 @@ pub struct VertreapNode<Item, P> {
 }
 
 impl<Item, P> VertreapNode<Item, P> {
-  fn leaf(version: usize, priority: P, item: Item) -> VertreapNode<Item, P> {
+  fn leaf(version: u64, priority: P, item: Item) -> VertreapNode<Item, P> {
     VertreapNode{
       version,
       priority,
@@ -350,7 +450,7 @@ impl<Item, P> VertreapNode<Item, P> {
     }
   }
 
-  fn branch(version: usize, priority: P, item: Rc<Item>, left: Option<Rc<VertreapNode<Item, P>>>, right: Option<Rc<VertreapNode<Item, P>>>) -> VertreapNode<Item, P> {
+  fn branch(version: u64, priority: P, item: Rc<Item>, left: Option<Rc<VertreapNode<Item, P>>>, right: Option<Rc<VertreapNode<Item, P>>>) -> VertreapNode<Item, P> {
     if let Some(ref left_node) = left {
       assert!(left_node.version <= version);
     }
@@ -368,7 +468,7 @@ impl<Item, P> VertreapNode<Item, P> {
 }
 
 impl<Item, P> VertreapNode<Item, P> {
-  fn _find<K>(&self, version: usize, key: &K) -> Option<Rc<Item>> where Item: PartialOrd<K> {
+  fn _find<K>(&self, version: u64, key: &K) -> Option<Rc<Item>> where Item: PartialOrd<K> {
     assert!(self.version <= version);
     match self.item.partial_cmp(key) {
       None => panic!(),
@@ -392,7 +492,7 @@ impl<Item, P> VertreapNode<Item, P> {
 }
 
 impl<Item, P> VertreapNode<Item, P> where P: Copy {
-  fn _rotate_left(&self, new_version: usize) -> VertreapNode<Item, P> {
+  fn _rotate_left(&self, new_version: u64) -> VertreapNode<Item, P> {
     assert!(self.version <= new_version);
     if let Some(ref l_node) = self.left {
       assert!(l_node.version <= new_version);
@@ -415,7 +515,7 @@ impl<Item, P> VertreapNode<Item, P> where P: Copy {
     new_up
   }
 
-  fn _rotate_right(&self, new_version: usize) -> VertreapNode<Item, P> {
+  fn _rotate_right(&self, new_version: u64) -> VertreapNode<Item, P> {
     assert!(self.version <= new_version);
     if let Some(ref r_node) = self.right {
       assert!(r_node.version <= new_version);
@@ -440,7 +540,7 @@ impl<Item, P> VertreapNode<Item, P> where P: Copy {
 }
 
 impl<Item, P> VertreapNode<Item, P> where Item: PartialOrd, P: Copy + Ord {
-  fn _append(&self, new_version: usize, new_priority: P, new_item: Item) -> (VertreapNode<Item, P>, usize) {
+  fn _append(&self, new_version: u64, new_priority: P, new_item: Item) -> (VertreapNode<Item, P>, usize) {
     assert!(self.version < new_version);
     match new_item.partial_cmp(&*self.item) {
       None => panic!(),
