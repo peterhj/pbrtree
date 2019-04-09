@@ -130,6 +130,11 @@ impl<K, V, P> Clone for VertreapMap<K, V, P> {
 }
 
 impl<K, V, P> VertreapMap<K, V, P> where Standard: Distribution<P> {
+  /// Equivalent to `new_with_thread_rng`.
+  pub fn new() -> VertreapMap<K, V, P> {
+    VertreapMap::new_with_thread_rng()
+  }
+
   /// Create a new persistent treap-backed map, where priorities are generated
   /// by `ThreadRng`.
   pub fn new_with_thread_rng() -> VertreapMap<K, V, P> {

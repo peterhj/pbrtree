@@ -1,12 +1,13 @@
 [package]
 name = "vertreap"
-version = "0.1.0-devel"
-authors = ["Peter Jin <peterhaijin@gmail.com>"]
+version = "0.1.0-pre.0"
 edition = "2018"
-
-[lib]
-name = "vertreap"
-path = "src/lib.rs"
+authors = ["Peter Jin <peterhaijin@gmail.com>"]
+license = "MIT"
+description = "A purely functional treap"
+documentation = "https://docs.rs/vertreap"
+repository = "https://github.com/peterhj/vertreap"
+readme = "README.md"
 
 [dependencies]
 rand = "^0.6"
